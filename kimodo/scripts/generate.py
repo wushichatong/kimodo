@@ -378,7 +378,11 @@ def main():
             print("BVH export is only supported for SOMA skeletons. Skipping --bvh.")
         else:
             from kimodo.exports.bvh import save_motion_bvh
-            from kimodo.skeleton import global_rots_to_local_rots
+            from kimodo.skeleton import global_rots_to_local_rots, SOMASkeleton30
+
+            if isinstance(skeleton, SOMASkeleton30):
+                # Motion has already been converted to somaskel77 within the model for output
+                skeleton = skeleton.somaskel77.to(device)
 
             if n_samples == 1:
                 bvh_path = _single_file_path(output_base, ".bvh")
