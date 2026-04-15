@@ -175,6 +175,14 @@ GMR supports the AMASS NPZ format out of the box, so simply generate motions wit
 python scripts/smplx_to_robot.py --smplx_file /path/to/saved/amass_format.npz --robot booster_t1
 ```
 
+### Combining Kimodo with GEAR-SONIC
+
+<div align="center">
+  <img src="assets/sonic_kimodo_demo.gif" width="800">
+</div>
+
+As a proof of concept, we have also incorporated Kimodo into the [interactive GEAR-SONIC demo](https://nvlabs.github.io/GEAR-SONIC/demo.html). In the demo, Kimodo can be used to generate a kinematic motion on the G1 robot skeleton, then GEAR-SONIC tracks the motion in simulation.
+
 ## Kimodo Motion Generation Benchmark
 
 [**[Benchmark Documentation](https://research.nvidia.com/labs/sil/projects/kimodo/docs/benchmark/introduction.html)**]
