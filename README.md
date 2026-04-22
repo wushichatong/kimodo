@@ -50,6 +50,126 @@ The models trained on BONES-SEED use 288 hours of [publicly available mocap data
 ### Changes in v1.1
 The latest v1.1 Kimodo-SOMA models were released primarily for compatibility with our new [Motion Generation Benchmark](#kimodo-motion-generation-benchmark), but also contain minor quality improvements over v1. For details on these improvements, please see the Hugging Face pages for [Kimodo-SOMA-RP-v1.1](https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1.1#changes-in-v11) and [Kimodo-SOMA-SEED-v1.1](https://huggingface.co/nvidia/Kimodo-SOMA-SEED-v1.1#changes-in-v11).
 
+## 本地快速部署（本仓库实测流程）
+
+> 本节为本机实测流程，无需申请 `meta-llama/Meta-Llama-3-8B-Instruct` 的 gated 访问权限，使用社区非 gated 镜像 `NousResearch/Meta-Llama-3-8B-Instruct` 作为 LLM2Vec 基模型替换。权重与官方 Llama-3-8B-Instruct 一致，与 Kimodo 训练分布兼容。
+>
+> 测试环境：Ubuntu / Linux 6.8、RTX 3090 (24GB)、NVIDIA 驱动 565.77、CUDA 12.7。
+
+### 1. 安装 Miniconda（若已有 conda 可跳过）
+
+```bash
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p $HOME/miniconda3
+$HOME/miniconda3/bin/conda init bash
+# 可选：不自动进入 base 环境
+$HOME/miniconda3/bin/conda config --set auto_activate_base false
+# 接受 TOS（conda 26+ 新环境首次需要）
+$HOME/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+$HOME/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+source ~/.bashrc
+```
+
+### 2. 创建 kimodo 环境并装 PyTorch
+
+```bash
+conda create -n kimodo python=3.10 -y
+conda activate kimodo
+
+# 避免系统 ROS 注入 PYTHONPATH 污染 conda 环境
+unset PYTHONPATH
+export PYTHONNOUSERSITE=1
+
+# 安装与 CUDA 驱动兼容的 GPU 版 PyTorch（此处 CUDA 12.4 对 3090/4090 均可）
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+```
+
+### 3. 安装 Kimodo（含 demo/SOMA 扩展）
+
+在仓库根目录（本 README 所在路径）执行：
+
+```bash
+pip install -e ".[all]"
+```
+
+### 4. 下载本地文本编码器（绕开 gated Llama-3）
+
+Kimodo 的 LLM2Vec 默认会拉取 gated `meta-llama/Meta-Llama-3-8B-Instruct`。源码 `kimodo/model/llm2vec/llm2vec_wrapper.py` 已支持 `TEXT_ENCODERS_DIR` 环境变量从本地加载，且 `llm2vec.py` 会用本地目录的 `config.json._name_or_path` 覆盖名称，因此可以用非 gated 镜像 + LLM2Vec 配置组合成完全可用的本地编码器。
+
+```bash
+mkdir -p $HOME/kimodo_text_encoders/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp
+mkdir -p $HOME/kimodo_text_encoders/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised
+
+# 4.1 基模型权重：用非 gated 镜像（约 15GB）
+hf download NousResearch/Meta-Llama-3-8B-Instruct \
+  --local-dir $HOME/kimodo_text_encoders/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp
+
+# 4.2 覆盖 LLM2Vec 的 config.json / tokenizer（关键：让 chat template 匹配官方 Llama-3-Instruct）
+hf download McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp \
+  --local-dir $HOME/kimodo_text_encoders/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp \
+  --include "*.json" "tokenizer*" "special_tokens_map.json"
+
+# 4.3 LLM2Vec 的 supervised PEFT adapter（非 gated）
+hf download McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised \
+  --local-dir $HOME/kimodo_text_encoders/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised
+```
+
+最终目录结构：
+
+```text
+~/kimodo_text_encoders/
+└── McGill-NLP/
+    ├── LLM2Vec-Meta-Llama-3-8B-Instruct-mntp/                 # 基模型 + LLM2Vec 配置
+    └── LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised/      # PEFT adapter
+```
+
+### 5. 写入 shell 快捷入口（可选但推荐）
+
+把以下两行追加到 `~/.bashrc`：
+
+```bash
+export TEXT_ENCODERS_DIR="$HOME/kimodo_text_encoders"
+alias kimodo-env='unset PYTHONPATH && export TEXT_ENCODERS_DIR="$HOME/kimodo_text_encoders" && conda activate kimodo'
+```
+
+使其生效：
+
+```bash
+source ~/.bashrc
+```
+
+### 6. 启动交互式 Demo
+
+```bash
+kimodo-env          # 激活环境 + 清 PYTHONPATH + 设 TEXT_ENCODERS_DIR
+kimodo_demo         # 启动 Web 界面
+```
+
+浏览器打开 <http://localhost:7860> 使用。远程服务器需端口转发：
+
+```bash
+ssh -L 7860:localhost:7860 <user>@<host>
+```
+
+### 7. 命令行生成（无需 Web 界面）
+
+```bash
+kimodo-env
+kimodo_gen "A person walks and falls to the ground." --duration 5 --num_samples 2
+```
+
+### 常见问题
+
+- **OOM（CUDA out of memory）**：Kimodo 加载 Llama-3-8B bf16 需要约 17GB 显存。检查 `nvidia-smi` 是否有其他进程占用，先 `kill <pid>` 释放：
+  ```bash
+  nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+  ```
+- **401 gated repo**：说明 `TEXT_ENCODERS_DIR` 没生效或本地目录结构不对。确认 `echo $TEXT_ENCODERS_DIR` 非空，且存在上面第 4 步中的两个子目录。
+- **transformers 报 `OSError: You are trying to access a gated repo`**：第 4.2 步的 config/tokenizer 文件缺失导致 LLM2Vec 回退去网上拉 gated 仓库；补下即可。
+- **PYTHONPATH 干扰**：系统若装了 ROS 等，会在 shell 里写入 `PYTHONPATH`，conda 环境会被污染导致导入错位。`kimodo-env` 别名已自动 `unset PYTHONPATH`。
+
+---
+
 ## Getting Started
 
 Please see the full documentation for detailed installation instructions, how to use the CLI and Interactive Demo, and other practical tips for generating motions with Kimodo:
